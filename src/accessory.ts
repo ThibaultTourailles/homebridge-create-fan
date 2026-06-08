@@ -104,7 +104,7 @@ export class FanAccessory {
 
   sendCommand(dps: number, value: string | number | boolean) {
     this.log.debug(`${this.accessory.displayName}:`, `sendCommand(${dps}, ${value})`);
-    this.tuyaDevice.set({ dps, set: value });
+    this.tuyaDevice.set({ dps, set: value, shouldWaitForResponse: false });
   }
 
   getFanActivity() {
