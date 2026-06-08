@@ -68,7 +68,7 @@ export class FanAccessory {
       id: accessory.context.device.id, 
       key: accessory.context.device.key,
       ip: accessory.context.device.ip,
-      version: accessory.context.device.version
+      version: accessory.context.device.version,
     });
     this.tuyaDevice.on('disconnected', () => {
       this.log.info(`${this.accessory.displayName}:`,'Disconnected');
@@ -89,8 +89,15 @@ export class FanAccessory {
     }
     this.isConnecting = true;
     this.log.info(`${this.accessory.displayName}:`, 'Connecting...');
-    await this.tuyaDevice.find();
-    await this.tuyaDevice.connect();
+    try {
+      await this.tuyaDevice.find();
+      await this.tuyaDevice.connect();
+    } catch (error) {
+      this.log.warn(`${this.accessory.displayName}:`, `Connection failed: ${(error as Error).message}. Retrying in 30s...`);
+      this.isConnecting = false;
+      setTimeout(() => this.connect(), 30_000);
+      return;
+    }
     this.isConnecting = false;
   }
 

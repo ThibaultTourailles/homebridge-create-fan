@@ -47,6 +47,7 @@ export class HomebridgeCreateCeilingFan implements DynamicPlatformPlugin {
       const existingFan = this.accessories.get(uuid);
       if (existingFan) {
         this.log.info('Platform:',`Restoring existing accessory from cache -> ${existingFan.displayName}`);
+        existingFan.context.device = fan;
         new FanAccessory(this, existingFan);
       } else {
         this.log.info('Platform:',`Adding new accessory -> ${fan.name}`);
