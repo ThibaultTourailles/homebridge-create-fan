@@ -176,5 +176,10 @@ export class LightAccessory {
   setLightColorTemperature(value: CharacteristicValue) {
     this.lightState.ColorTemperature = value as number;
     this.fan.sendCommand(23, this.miredsToTuya(this.lightState.ColorTemperature));
+    if (!this.lightState.On) {
+      this.lightState.On = true;
+      this.fan.sendCommand(20, true);
+      this.lightService.updateCharacteristic(this.Characteristic.On, true);
+    }
   }
 }
