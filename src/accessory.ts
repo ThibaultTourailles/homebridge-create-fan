@@ -161,16 +161,24 @@ export class LightAccessory {
     this.lightService.getCharacteristic(this.Characteristic.ColorTemperature)
       .onGet(() => this.lightState.ColorTemperature)
       .onSet(this.setLightColorTemperature.bind(this))
-      .setProps({ minValue: CCT_MIN_MIREDS, maxValue: CCT_MAX_MIREDS, minStep: CCT_STEP });
+      .setProps({
+        minValue: CCT_MIN_MIREDS,
+        maxValue: CCT_MAX_MIREDS,
+        minStep: CCT_STEP,
+        validValues: [CCT_MIN_MIREDS, CCT_MIN_MIREDS + CCT_STEP, CCT_MIN_MIREDS + CCT_STEP * 2],
+      });
   }
 
   private miredsToTuya(mireds: number): number {
-    return Math.round((CCT_MAX_MIREDS - mireds) / (CCT_MAX_MIREDS - CCT_MIN_MIREDS) * 1000);
+    return Math.round((mireds - CCT_MIN_MIREDS) / (CCT_MAX_MIREDS - CCT_MIN_MIREDS) * 1000);
   }
 
   setLightOn(value: CharacteristicValue) {
     this.lightState.On = value as boolean;
     this.fan.sendCommand(20, this.lightState.On);
+    if (this.lightState.On) {
+      this.fan.sendCommand(23, this.miredsToTuya(this.lightState.ColorTemperature));
+    }
   }
 
   setLightColorTemperature(value: CharacteristicValue) {
