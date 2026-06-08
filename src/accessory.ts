@@ -4,25 +4,22 @@ import type TuyaDevice from 'tuyapi';
 import TuyAPI from 'tuyapi';
 
 // HomeKit colour temperature range in Mireds (153=cool/white, 370=warm)
+// 3 discrete steps: 153 (white), 261 (warm white), 369 (warm)
 const CCT_MIN_MIREDS = 153;
 const CCT_MAX_MIREDS = 370;
+const CCT_STEP = 108;
 
 export class FanAccessory {
+  public readonly tuyaDevice: TuyaDevice;
   private readonly fanService: Service;
-  private readonly lightService: Service;
   private readonly Characteristic: typeof Characteristic;
   private readonly log: Logging;
-  private readonly tuyaDevice: TuyaDevice;
   private isConnecting = false;
   private isConnected = false;
   private fanState = {
-    Active: 0 as CharacteristicValue, // 0 = Inactive, 1 = Active
-    Rotation: 0 as CharacteristicValue, // 0 = Clockwise, 1 = Counter-Clockwise
+    Active: 0 as CharacteristicValue,
+    Rotation: 0 as CharacteristicValue,
     Speed: 20,
-  };
-  private lightState = {
-    On: false,
-    ColorTemperature: CCT_MAX_MIREDS, // default warm
   };
 
   constructor(
@@ -34,44 +31,24 @@ export class FanAccessory {
 
     this.log.info(`${accessory.displayName}:`, 'Init...');
 
-    // Information
     this.accessory.getService(this.platform.Service.AccessoryInformation)!
       .setCharacteristic(this.Characteristic.Manufacturer, 'CREATE')
       .setCharacteristic(this.Characteristic.Model, 'Ceiling Fan')
       .setCharacteristic(this.Characteristic.Name, accessory.context.device.name)
       .setCharacteristic(this.Characteristic.SerialNumber, accessory.context.device.id);
 
-    // Fan
     this.fanService = this.accessory.getService(this.platform.Service.Fanv2) || this.accessory.addService(this.platform.Service.Fanv2);
     this.fanService.setCharacteristic(this.Characteristic.Name, accessory.context.device.name);
     this.fanService.getCharacteristic(this.Characteristic.Active)
       .onGet(this.getFanActivity.bind(this))
       .onSet(this.setFanActivity.bind(this));
-
     this.fanService.getCharacteristic(this.Characteristic.RotationDirection)
       .onGet(this.getFanRotation.bind(this))
       .onSet(this.setFanRotation.bind(this));
-
     this.fanService.getCharacteristic(this.Characteristic.RotationSpeed)
       .onGet(this.getFanSpeed.bind(this))
       .onSet(this.setFanSpeed.bind(this))
       .setProps({ minValue: 0, maxValue: 100, minStep: 20 });
-
-    // Light — remove stale Switch service from cache if present
-    const staleSwitch = this.accessory.getService(this.platform.Service.Switch);
-    if (staleSwitch) {
-      this.accessory.removeService(staleSwitch);
-    }
-
-    this.lightService = this.accessory.getService(this.platform.Service.Lightbulb) || this.accessory.addService(this.platform.Service.Lightbulb);
-    this.lightService.setCharacteristic(this.Characteristic.Name, `${accessory.context.device.name} Light`);
-    this.lightService.getCharacteristic(this.Characteristic.On)
-      .onGet(this.getLightOn.bind(this))
-      .onSet(this.setLightOn.bind(this));
-    this.lightService.getCharacteristic(this.Characteristic.ColorTemperature)
-      .onGet(this.getLightColorTemperature.bind(this))
-      .onSet(this.setLightColorTemperature.bind(this))
-      .setProps({ minValue: CCT_MIN_MIREDS, maxValue: CCT_MAX_MIREDS });
 
     this.tuyaDevice = new TuyAPI({
       id: accessory.context.device.id,
@@ -80,15 +57,15 @@ export class FanAccessory {
       version: accessory.context.device.version,
     });
     this.tuyaDevice.on('disconnected', () => {
-      this.log.info(`${this.accessory.displayName}:`,'Disconnected');
+      this.log.info(`${this.accessory.displayName}:`, 'Disconnected');
       this.isConnected = false;
       this.connect();
     });
     this.tuyaDevice.on('connected', () => {
-      this.log.info(`${this.accessory.displayName}:`,'Connected!');
+      this.log.info(`${this.accessory.displayName}:`, 'Connected!');
       this.isConnected = true;
     });
-    this.tuyaDevice.on('error', (error: Error) => this.log.warn(`${this.accessory.displayName}:`,`Error -> ${error.toString()}`));
+    this.tuyaDevice.on('error', (error: Error) => this.log.warn(`${this.accessory.displayName}:`, `Error -> ${error.toString()}`));
     this.connect();
   }
 
@@ -115,61 +92,25 @@ export class FanAccessory {
     this.tuyaDevice.set({ dps, set: value, shouldWaitForResponse: false });
   }
 
-  // DPS 23: 0 (warm) → 1000 (white/cool)  ↔  Mireds: 370 (warm) → 153 (cool)
-  private miredsToTuya(mireds: number): number {
-    return Math.round((CCT_MAX_MIREDS - mireds) / (CCT_MAX_MIREDS - CCT_MIN_MIREDS) * 1000);
-  }
-
-  private tuyaToMireds(tuya: number): number {
-    return Math.round(CCT_MAX_MIREDS - (tuya / 1000) * (CCT_MAX_MIREDS - CCT_MIN_MIREDS));
-  }
-
   getFanActivity() {
-    this.log.debug(`${this.accessory.displayName}:`, `getFanActivity() => ${this.fanState.Active === 0 ? 'INACTIVE' : 'ACTIVE'}`);
     return this.fanState.Active;
   }
 
   setFanActivity(value: CharacteristicValue) {
     this.fanState.Active = value as number;
     this.sendCommand(60, this.fanState.Active === 1);
-    this.log.debug(`${this.accessory.displayName}:`, `setFanActivity() => ${value === 0 ? 'INACTIVE' : 'ACTIVE'}`);
-  }
-
-  getLightOn() {
-    this.log.debug(`${this.accessory.displayName}:`, `getLightOn() => ${this.lightState.On ? 'ON' : 'OFF'}`);
-    return this.lightState.On;
-  }
-
-  setLightOn(value: CharacteristicValue) {
-    this.lightState.On = value as boolean;
-    this.sendCommand(20, this.lightState.On);
-    this.log.debug(`${this.accessory.displayName}:`, `setLightOn() => ${this.lightState.On ? 'ON' : 'OFF'}`);
-  }
-
-  getLightColorTemperature() {
-    this.log.debug(`${this.accessory.displayName}:`, `getLightColorTemperature() => ${this.lightState.ColorTemperature} mireds`);
-    return this.lightState.ColorTemperature;
-  }
-
-  setLightColorTemperature(value: CharacteristicValue) {
-    this.lightState.ColorTemperature = value as number;
-    this.sendCommand(23, this.miredsToTuya(this.lightState.ColorTemperature));
-    this.log.debug(`${this.accessory.displayName}:`, `setLightColorTemperature() => ${value} mireds (DPS 23=${this.miredsToTuya(value as number)})`);
   }
 
   getFanRotation() {
-    this.log.debug(`${this.accessory.displayName}:`, `getFanRotation() => ${this.fanState.Rotation === 0 ? 'CLOCKWISE' : 'COUNTER_CLOCKWISE'}`);
     return this.fanState.Rotation;
   }
 
   setFanRotation(value: CharacteristicValue) {
     this.fanState.Rotation = value as number;
     this.sendCommand(63, this.fanState.Rotation === 0 ? 'forward' : 'reverse');
-    this.log.debug(`${this.accessory.displayName}:`, `setFanRotation() => ${value === 0 ? 'CLOCKWISE' : 'COUNTER_CLOCKWISE'}`);
   }
 
   getFanSpeed() {
-    this.log.debug(`${this.accessory.displayName}:`, `getFanSpeed() => ${this.fanState.Speed}`);
     return this.fanState.Speed;
   }
 
@@ -180,12 +121,60 @@ export class FanAccessory {
       this.sendCommand(60, false);
     } else {
       this.fanState.Speed = value as number;
-      this.sendCommand(62, this.toStep(this.fanState.Speed));
+      this.sendCommand(62, Math.round(this.fanState.Speed / 20));
     }
-    this.log.debug(`${this.accessory.displayName}:`, `setFanSpeed() => ${value}`);
+  }
+}
+
+export class LightAccessory {
+  private readonly lightService: Service;
+  private readonly Characteristic: typeof Characteristic;
+  private lightState = {
+    On: false,
+    ColorTemperature: CCT_MAX_MIREDS,
+  };
+
+  constructor(
+    private readonly platform: HomebridgeCreateCeilingFan,
+    private readonly accessory: PlatformAccessory<PlatformAccessoryContext>,
+    private readonly fan: FanAccessory,
+  ) {
+    this.Characteristic = this.platform.Characteristic;
+
+    this.accessory.getService(this.platform.Service.AccessoryInformation)!
+      .setCharacteristic(this.Characteristic.Manufacturer, 'CREATE')
+      .setCharacteristic(this.Characteristic.Model, 'Ceiling Fan Light')
+      .setCharacteristic(this.Characteristic.Name, accessory.context.device.name)
+      .setCharacteristic(this.Characteristic.SerialNumber, accessory.context.device.id + '-light');
+
+    // Remove stale Switch service if present from old cache
+    const staleSwitch = this.accessory.getService(this.platform.Service.Switch);
+    if (staleSwitch) {
+      this.accessory.removeService(staleSwitch);
+    }
+
+    this.lightService = this.accessory.getService(this.platform.Service.Lightbulb) || this.accessory.addService(this.platform.Service.Lightbulb);
+    this.lightService.setCharacteristic(this.Characteristic.Name, `${accessory.context.device.name} Light`);
+    this.lightService.getCharacteristic(this.Characteristic.On)
+      .onGet(() => this.lightState.On)
+      .onSet(this.setLightOn.bind(this));
+    this.lightService.getCharacteristic(this.Characteristic.ColorTemperature)
+      .onGet(() => this.lightState.ColorTemperature)
+      .onSet(this.setLightColorTemperature.bind(this))
+      .setProps({ minValue: CCT_MIN_MIREDS, maxValue: CCT_MAX_MIREDS, minStep: CCT_STEP });
   }
 
-  toStep(percent: number) {
-    return Math.round(percent / 20);
+  private miredsToTuya(mireds: number): number {
+    return Math.round((CCT_MAX_MIREDS - mireds) / (CCT_MAX_MIREDS - CCT_MIN_MIREDS) * 1000);
+  }
+
+  setLightOn(value: CharacteristicValue) {
+    this.lightState.On = value as boolean;
+    this.fan.sendCommand(20, this.lightState.On);
+  }
+
+  setLightColorTemperature(value: CharacteristicValue) {
+    this.lightState.ColorTemperature = value as number;
+    this.fan.sendCommand(23, this.miredsToTuya(this.lightState.ColorTemperature));
   }
 }

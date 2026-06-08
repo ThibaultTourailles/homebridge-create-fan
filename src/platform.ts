@@ -1,6 +1,6 @@
 import type { API, Characteristic, DynamicPlatformPlugin, Logging, PlatformAccessory, PlatformConfig, Service } from 'homebridge';
 import { PLATFORM_NAME, PLUGIN_NAME } from './settings.js';
-import { FanAccessory } from './accessory.js';
+import { FanAccessory, LightAccessory } from './accessory.js';
 
 export interface FanConfiguration {
   id: string;
@@ -9,7 +9,7 @@ export interface FanConfiguration {
   ip: string;
   version: number;
 }
-export type PlatformAccessoryContext = { device: FanConfiguration } ;
+export type PlatformAccessoryContext = { device: FanConfiguration };
 
 
 export class HomebridgeCreateCeilingFan implements DynamicPlatformPlugin {
@@ -25,14 +25,10 @@ export class HomebridgeCreateCeilingFan implements DynamicPlatformPlugin {
   ) {
     this.Service = api.hap.Service;
     this.Characteristic = api.hap.Characteristic;
-    this.log.debug('Platform:',`Finished initializing platform ${this.config.name}`);
+    this.log.debug('Platform:', `Finished initializing platform ${this.config.name}`);
 
-    // When this event is fired it means Homebridge has restored all cached accessories from disk.
-    // Dynamic Platform plugins should only register new accessories after this event was fired,
-    // in order to ensure they weren't added to homebridge already. This event can also be used
-    // to start discovery of new accessories.
     this.api.on('didFinishLaunching', () => {
-      log.debug('Platform:','Executed didFinishLaunching callback');
+      log.debug('Platform:', 'Executed didFinishLaunching callback');
       if (!config.devices || !Array.isArray(config.devices) || config.devices.length === 0) {
         this.log.warn('No fans specified in the configuration.');
         return;
@@ -43,37 +39,42 @@ export class HomebridgeCreateCeilingFan implements DynamicPlatformPlugin {
 
   discoverDevices(fans: FanConfiguration[]) {
     for (const fan of fans) {
-      const uuid = this.api.hap.uuid.generate(fan.id);
-      const existingFan = this.accessories.get(uuid);
-      if (existingFan) {
-        this.log.info('Platform:',`Restoring existing accessory from cache -> ${existingFan.displayName}`);
-        existingFan.context.device = fan;
-        new FanAccessory(this, existingFan);
-      } else {
-        this.log.info('Platform:',`Adding new accessory -> ${fan.name}`);
-        const accessory = new this.api.platformAccessory<PlatformAccessoryContext>(fan.name, uuid);
-        accessory.context.device = fan;
-        new FanAccessory(this, accessory);
-        this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
-      }
-      this.discoveredCacheUUIDs.push(uuid);
+      const fanUUID = this.api.hap.uuid.generate(fan.id + '-fan');
+      const lightUUID = this.api.hap.uuid.generate(fan.id + '-light');
+
+      const fanAcc = this.getOrCreateAccessory(fanUUID, fan.name, fan);
+      const lightAcc = this.getOrCreateAccessory(lightUUID, `${fan.name} Light`, fan);
+
+      const fanAccessory = new FanAccessory(this, fanAcc);
+      new LightAccessory(this, lightAcc, fanAccessory);
+
+      this.discoveredCacheUUIDs.push(fanUUID, lightUUID);
     }
 
-    // Clean
     for (const [uuid, accessory] of this.accessories) {
       if (!this.discoveredCacheUUIDs.includes(uuid)) {
-        this.log.info('Platform:','Removing existing accessory from cache ->', accessory.displayName);
+        this.log.info('Platform:', 'Removing accessory from cache ->', accessory.displayName);
         this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
       }
     }
   }
 
-  /**
-   * This function is invoked when homebridge restores cached accessories from disk at startup.
-   * It should be used to set up event handlers for characteristics and update respective values.
-   */
+  private getOrCreateAccessory(uuid: string, name: string, fan: FanConfiguration) {
+    const existing = this.accessories.get(uuid);
+    if (existing) {
+      this.log.info('Platform:', `Restoring existing accessory from cache -> ${existing.displayName}`);
+      existing.context.device = fan;
+      return existing;
+    }
+    this.log.info('Platform:', `Adding new accessory -> ${name}`);
+    const accessory = new this.api.platformAccessory<PlatformAccessoryContext>(name, uuid);
+    accessory.context.device = fan;
+    this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
+    return accessory;
+  }
+
   configureAccessory(accessory: PlatformAccessory) {
-    this.log.info('Platform:','Loading accessory from cache ->', accessory.displayName);
+    this.log.info('Platform:', 'Loading accessory from cache ->', accessory.displayName);
     this.accessories.set(accessory.UUID, accessory as PlatformAccessory<PlatformAccessoryContext>);
   }
 }
