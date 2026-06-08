@@ -51,7 +51,8 @@ export class FanAccessory {
 
     this.fanService.getCharacteristic(this.Characteristic.RotationSpeed)
       .onGet(this.getFanSpeed.bind(this))
-      .onSet(this.setFanSpeed.bind(this));
+      .onSet(this.setFanSpeed.bind(this))
+      .setProps({ minValue: 0, maxValue: 100, minStep: 20 });
 
     // Light
     this.lightService = this.accessory.getService(this.platform.Service.Lightbulb) || this.accessory.addService(this.platform.Service.Lightbulb);
@@ -169,8 +170,6 @@ export class FanAccessory {
   }
 
   toStep(percent: number) {
-    const steps = [1, 2, 3, 4, 5, 6];
-    const stepIndex = Math.floor(percent / 16.67); // 100 / 6 = 16.67
-    return steps[Math.min(stepIndex, steps.length - 1)];
+    return Math.round(percent / 20);
   }
 }
